@@ -10,8 +10,7 @@
 
 package = {
     spec        = "1",
-    namespace = "compat",
-    name      = "ftxui",
+    name        = "ftxui",
     description = "C++ Functional Terminal User Interface (screen + dom + component)",
     licenses    = {"MIT"},
     repo        = "https://github.com/ArthurSonzogni/FTXUI",
