@@ -51,5 +51,8 @@ package = {
         },
         targets = { ["ftxui"] = { kind = "lib" } },
         deps    = { },
+        windows = {
+            cxxflags = { "-DUNICODE", "-D_UNICODE" },
+        },
     },
 }
