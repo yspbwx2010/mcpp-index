@@ -53,6 +53,13 @@ mcpp git-clone 本仓到 `~/.mcpp/registry/data/mcpplibs`,push 即可被 pull。
 
 ## 6. 落地
 
-1. 本仓加 `publish-artifact.yml` + vendored 打包脚本(内容哈希命名)。
-2. mcpp 侧加 artifact 拉取 + 离线优先(mcpp 仓 P0/P1)。
-3. 两套索引(xim-pkgindex / mcpp-index)发布+拉取模型完全统一。
+1. **✅ 已实现**(PR #44,squash 合入):本仓 `.github/workflows/publish-artifact.yml`
+   (push `pkgs/**` / 手动 / nightly)+ `tools/publish_mcpp_index.sh`(consolidated:build+publish+pointer)
+   + vendored `tools/gtc`。内容哈希命名 `mcpp-index-<short-sha>.tar.gz`。
+   - 资源仓 `xlings-res/mcpp-index`(github + gitcode 两端,gitcode 端由 `gtc repo create` 补建 + git init seed)。
+   - 实测 CI(run success)+ 本地:artifact `mcpp-index-69f4b68.tar.gz` 两端**字节一致** `6ef3576e9048`,
+     pointer `mcpp-index-pointers.json`(key `mcpp`)两端已推。
+2. **mcpp 侧 artifact 拉取 + 离线优先**:见 mcpp 仓 `.agents/docs/2026-06-24-offline-first-...md`(WS3,待实现)。
+3. 两套索引发布模型已统一(xim-pkgindex / mcpp-index 均 push 触发 → xlings-res 发 artifact + 合并/单 key 指针)。
+
+> 注:gitcode 资源仓的 release 暂无法用 API 删除(405),误建的 probe release 需网页清理。
