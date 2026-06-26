@@ -13,7 +13,10 @@ package = {
     xpm = {
         linux = {
             ["0.0.42"] = {
-                url    = "https://github.com/openxlings/libxpkg/archive/refs/tags/v0.0.42.tar.gz",
+                url    = {
+                    GLOBAL = "https://github.com/openxlings/libxpkg/archive/refs/tags/v0.0.42.tar.gz",
+                    CN     = "https://gitcode.com/mcpp-res/xpkg/releases/download/0.0.42/xpkg-0.0.42.tar.gz",
+                },
                 sha256 = "5f8732abf9b768c2ac6c210a5ff03982cffaf1f889cf700e5df39545920ca665",
             },
             ["0.0.41"] = {
@@ -40,7 +43,10 @@ package = {
         },
         macosx = {
             ["0.0.42"] = {
-                url    = "https://github.com/openxlings/libxpkg/archive/refs/tags/v0.0.42.tar.gz",
+                url    = {
+                    GLOBAL = "https://github.com/openxlings/libxpkg/archive/refs/tags/v0.0.42.tar.gz",
+                    CN     = "https://gitcode.com/mcpp-res/xpkg/releases/download/0.0.42/xpkg-0.0.42.tar.gz",
+                },
                 sha256 = "5f8732abf9b768c2ac6c210a5ff03982cffaf1f889cf700e5df39545920ca665",
             },
             ["0.0.41"] = {
@@ -67,7 +73,10 @@ package = {
         },
         windows = {
             ["0.0.42"] = {
-                url    = "https://github.com/openxlings/libxpkg/archive/refs/tags/v0.0.42.tar.gz",
+                url    = {
+                    GLOBAL = "https://github.com/openxlings/libxpkg/archive/refs/tags/v0.0.42.tar.gz",
+                    CN     = "https://gitcode.com/mcpp-res/xpkg/releases/download/0.0.42/xpkg-0.0.42.tar.gz",
+                },
                 sha256 = "5f8732abf9b768c2ac6c210a5ff03982cffaf1f889cf700e5df39545920ca665",
             },
             ["0.0.41"] = {
