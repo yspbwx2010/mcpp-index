@@ -1,0 +1,145 @@
+# 库形态与描述符模板
+
+编写描述符前,应先判定库所属的形态,再选用对应模板。`mcpp = {}` 内的所有路径均为**相对 verdir 的 GLOB**:
+前导 `*` 用于吸收 tarball 的 `<repo>-<tag>/` wrap 层;`*` 匹配单段,`**` 匹配跨段(例如 `*/blas/*.cpp` 合法)。
+
+四种形态的判定要点如下:
+
+| 形态 | 特征 | 样例 | 关键字段 |
+|---|---|---|---|
+| **A. C 源码 compat** | 纯 C 或少量源码,用户 `#include <foo.h>` | `pkgs/c/compat.cjson.lua`、`compat.zlib.lua`、`compat.gtest.lua` | `sources` 与 `c_standard` |
+| **B. header-only** | 纯头文件,无需编译 | `pkgs/c/compat.eigen.lua`、`compat.opengl.lua`、`compat.khrplatform.lua` | `include_dirs` 与 anchor 源 |
+| **C. C++23 module** | 暴露 `import x.y;` | `pkgs/n/nlohmann.json.lua` | `modules` 与 `generated_files` 或源 `.cppm` |
+| **D. 外部 Form-A 模块仓** | 上游自带 mcpp 描述符,独立仓库 | `pkgs/i/imgui.lua`、`pkgs/m/mcpplibs.*` | `mcpp = "<repo 路径>"`(Form A) |
+
+A、B、C 三类共用的骨架(`package` 头与 `xpm`)如下:
+
+```lua
+package = {
+    spec        = "1",
+    namespace   = "compat",          -- compat / nlohmann / mcpplibs 等,决定 import 前缀与依赖 key
+    name        = "compat.<lib>",    -- 完整包名,决定 pkgs/<首字母>/ 的落点
+    description = "…",
+    licenses    = {"MIT"},           -- SPDX
+    repo        = "https://…",
+    type        = "package",
+
+    xpm = {  -- 三平台均需声明;纯源码或纯头时三平台共用同一 url 与 sha256
+        linux   = { ["1.2.3"] = { url = { GLOBAL = "https://…/v1.2.3.tar.gz",
+                                          CN     = "https://gitcode.com/mcpp-res/<slug>/releases/download/1.2.3/<slug>-1.2.3.tar.gz" },
+                                  sha256 = "<计算所得>" } },
+        macosx  = { ["1.2.3"] = { url = { GLOBAL = "…", CN = "…" }, sha256 = "…" } },
+        windows = { ["1.2.3"] = { url = { GLOBAL = "…", CN = "…" }, sha256 = "…" } },
+    },
+
+    mcpp = { … 见下文各形态 … },
+}
+```
+
+---
+
+## A. C 源码 compat(`compat.cjson` / `compat.zlib`)
+
+将 C 源码编译为 lib,头文件经 `include_dirs` 暴露,可选组件由 `features` 门控。
+
+```lua
+mcpp = {
+    language     = "c++23",   -- 与既有 compat 对齐;实际的 C 行为由 c_standard 决定
+    import_std   = false,
+    c_standard   = "c99",     -- 或 c11
+    include_dirs = { "*" },           -- 暴露顶层头文件(*/foo.h)
+    sources      = { "*/cJSON.c" },   -- 核心源码,始终编译
+    targets      = { ["cjson"] = { kind = "lib" } },
+    features     = {                  -- 可选扩展,默认不编译
+        ["utils"] = { sources = { "*/cJSON_Utils.c" } },
+    },
+    deps         = { },
+}
+```
+
+要点:多源码时可逐个列出(`compat.zlib` 列出了 15 个 `.c`)或使用 glob;需要配置头时可用 `generated_files` 合成
+(`compat.zlib` 使用 `mcpp_generated/include/mcpp_zlib_config.h` 配合 `cflags = {"-include …"}`)。
+
+## B. header-only(`compat.eigen` / `compat.opengl`)
+
+此类库无可编译源码:由 `include_dirs` 暴露头文件,并加入一个 trivial anchor `.c`,以提供一个可构建的 lib 目标。
+
+```lua
+mcpp = {
+    language     = "c++23",
+    import_std   = false,
+    c_standard   = "c11",
+    include_dirs = { "*" },           -- 或更精确的 "*/include" / "*/api"
+    generated_files = {
+        ["mcpp_generated/<lib>_anchor.c"] = "int mcpp_compat_<lib>_anchor(void) { return 0; }\n",
+    },
+    sources      = { "mcpp_generated/<lib>_anchor.c" },
+    targets      = { ["<lib>"] = { kind = "lib" } },
+    -- 若存在额外可编译源码的组件(非纯头),可实现为 source-gated feature:
+    features     = {
+        ["blas"] = { sources = { "*/blas/*.cpp", "*/blas/f2c/*.c" } },  -- eigen 实例
+    },
+    deps         = { },
+}
+```
+
+注意:纯头形式的可选项无法隐藏(与核心共享 include 根),因此不应为其勉强构造 feature;只有额外可编译源码才能被门控
+(`compat.eigen` 的 `blas` 即由 C++ 与 f2c 转换的 C 构成,不依赖 Fortran,因此可门控)。
+
+## C. C++23 module(`nlohmann.json`)
+
+使用户可 `import x.y;`。有两种实现路径:
+
+1. **上游已自带 `.cppm`**:直接 `sources = { "*/path/to/unit.cppm" }`。
+2. **上游 release 不含**(较常见):以 `generated_files` 合成 wrapper(`#include <header>`、`export module x.y;`、
+   `export using …`),基底头 pin 至已发布 tag。应逐字复用上游官方 wrapper,而非自行推断符号清单。
+
+```lua
+mcpp = {
+    schema       = "0.1",
+    language     = "c++23",
+    import_std   = false,                 -- wrapper 含上游头,启用 import std 易产生冲突
+    modules      = { "nlohmann.json" },
+    include_dirs = { "*/single_include" }, -- 使 wrapper 内的 #include <…> 可解析
+    generated_files = {
+        ["mcpp_generated/nlohmann.json.cppm"] = "module;\n#include <nlohmann/json.hpp>\nexport module nlohmann.json;\n…",
+    },
+    sources      = { "mcpp_generated/nlohmann.json.cppm" },
+    targets      = { ["nlohmann_json"] = { kind = "lib" } },
+    deps         = { },
+}
+```
+
+注意:mcpp 段解析器不支持 Lua 长括号 `[[ … ]]`,`generated_files` 的内容必须采用双引号字符串并对 `\n`、`\"`
+转义,否则报 `malformed mcpp segment`。消费侧不应将 `import x.y;` 与文本 `#include <string>` 混用(会与 GCC
+modules 冲突),应配合 `import std;`。
+
+## D. 外部 Form-A 模块仓(`imgui` / `mcpplibs.*`)
+
+上游或独立仓库自带 mcpp 描述符,本仓仅充当指针:`mcpp = "<相对或远程路径>"`(Form A,而非内联的 Form B)。新增的
+独立库通常归属于另一仓库(如 `mcpplibs/imgui-m`),本仓只负责登记。写法可参照 `pkgs/i/imgui.lua` 与
+`pkgs/m/mcpplibs.xpkg.lua`。
+
+---
+
+## 最小工程(`tests/examples/<short>/`)
+
+`mcpp.toml`(短式依赖与长式依赖二选一):
+
+```toml
+[package]
+name = "<short>-example"
+version = "0.1.0"
+[toolchain]
+default = "gcc@16.1.0"
+[indices]
+compat = { path = "../../.." }            # 指回仓根,以使用本地描述符
+[dependencies.compat]
+<short> = "1.2.3"                          # 或:<short> = { version = "1.2.3", features = ["…"] }
+[targets.<short>-example]
+kind = "bin"
+main = "src/main.cpp"                      # C 库可使用 .c
+```
+
+`src/main.cpp` 应包含有效断言并 `return ok ? 0 : 1`,而非仅打印输出。module 库使用 `import std; import x.y;`;
+header-only 与 C 库使用文本 `#include`。
