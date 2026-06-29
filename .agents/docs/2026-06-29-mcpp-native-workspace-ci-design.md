@@ -5,11 +5,13 @@
 **问题**: 现在 mcpp-index 的 CI 用一堆 `tests/smoke_*.sh` 脚本(heredoc 生成临时消费者工程
 再 `mcpp build`/`run`)。能不能**不用 .sh**,把 mcpp-index 当成一个**大的 mcpp workspace**,
 直接 `mcpp test` 跑完?
-**结论先行**: **能搬一半,不能全去掉**。workspace + 本地 `[indices]` 路径索引可以把脚本里
-**「造工程 + 路由依赖」**那一半变成签入仓库的静态 member 工程(地道 mcpp 用法);但 mcpp 今天
-**没有「整 workspace 一条命令测完」、没有 per-OS 依赖/ldflags、没有条件化跳过执行**,而
-**环境隔离 / 下载缓存 / 产物断言**这些本就不属于 mcpp 的职责。所以现实落点是
-**一个薄得多的驱动脚本** 驱动 `mcpp build/run/test` 跑一个静态 workspace —— 而不是脚本归零。
+**结论先行**: **能搬一半,不能全去掉**。让**仓库根自指**为「索引 ⊕ virtual workspace」
+(member 复用 `tests/examples/*`、`[indices] compat = { path = "." }` 指回自己的 `pkgs/`,**不另起
+`ci/` 目录**),可以把脚本里**「造工程 + 路由依赖」**那一半变成签入的静态 member(地道 mcpp 用法、
+顺带吃狗粮);但 mcpp 今天**没有「整 workspace 一条命令测完」、没有 per-OS 依赖/ldflags、没有条件化
+跳过执行**,而**环境隔离 / 下载缓存 / 产物断言**本就不属于 mcpp 职责。所以现实落点是**一个薄得多的
+驱动脚本** 驱动 `mcpp test/run` 跑这个自指 workspace —— 而不是脚本归零。per-OS 那块由 mcpp 侧
+**L1 条件依赖**(见 §4a 关联文档)落地后从驱动删除。
 本文给出能力对照、差距、分层方案、以及让驱动继续变薄的 **mcpp 侧特性路线图**。
 
 > 证据基于 mcpp 源码 `mcpp-community/mcpp`(下文 file:line 均指该仓)与本仓 `tests/`。
@@ -90,37 +92,53 @@ env 选 code path(`portable:421`)——mcpp **没有「满足某 env/capability 
 
 ---
 
-## 4. 方案:静态 workspace + 薄驱动(分层)
+## 4. 方案:仓库**自指**为「索引 ⊕ workspace」(不另起 ci/ 目录)
 
-把可静态化的 A 类沉到仓库里的 workspace member,B 类收敛进一个**远比现在小**的驱动。
+把可静态化的 A 类沉成签入的 workspace member,B 类收敛进一个**远比现在小**的驱动。
+**关键收敛(相对本文初稿)**:不新建 `ci/workspace/`,而是让**仓库根自己**成为一个
+virtual workspace,member **复用现有 `tests/examples/<库>/`**,并用 `[indices] compat = { path = "." }`
+**指回自己的 `pkgs/`**——于是同一个仓库**既是包索引**(`pkgs/` 被 xlings 消费)**又是 mcpp 工程**
+(workspace 通过本地 path 索引消费自己的 `pkgs/`)。这就是"吃自己的狗粮"。
 
 ```
-mcpp-index/
-  pkgs/**/*.lua                     # recipe(不动)
-  ci/workspace/                     # 新增:CI 用的 mcpp workspace(签入,非 heredoc)
-    mcpp.toml                       # [workspace] members=[...]; [indices] compat={ path="../.." }
-    core/         mcpp.toml + src/main.cpp     # = smoke_compat_core
-    archive/      mcpp.toml + src/main.cpp
-    compression/  ...
-    imgui/  glfw/  openblas/  ...
-  ci/run.sh                         # 薄驱动:环境隔离 + 缓存 + 平台门控 + 遍历 member + 产物断言
+mcpp-index/                          # 仓库根 = 索引 ⊕ virtual workspace
+  mcpp.toml                          # [workspace] members=["tests/examples/*"]
+                                     # [indices] compat = { path = "." }   ← 自指
+  pkgs/c/compat.openblas.lua         # 索引内容(recipe,不动)
+  tests/examples/openblas/           # member = openblas 的测试工程(复用现有 examples 约定)
+    mcpp.toml                        #   继承根 [indices];[dependencies.compat] openblas=…
+    src/blas_ops.cpp                 #   kind=lib:把库能力封成干净接口(matmul2x2 …)
+    tests/dgemm.cpp                  #   mcpp test:调接口断言 [19 22 43 50]
+    tests/syrk.cpp                   #   同依赖集多个断言点 → 一次 mcpp test 全跑
+  tests/examples/compression/  imgui/  glfw/ …
+  ci/run.sh                          # 薄驱动:环境隔离 + 缓存 + 平台门控 + 遍历 member + 产物断言
 ```
 
-- **member = 消费者工程**:每个 smoke 工程从 heredoc 变成签入的 `mcpp.toml`+`src/main.cpp`,断言
-  照旧编进 `main`(失败 return 非 0)。可读、可本地 `cd ci/workspace/openblas && mcpp run` 复现。
-- **依赖路由**:workspace 根 `[indices] compat = { path = "../.." }`,member 不各自声明则继承
-  (`prepare.cppm:366-402`)。`compat.<pkg>` 全部走本仓 recipe。
+- **每库一 member,member 内 src/ + tests/**:`src/` 放把库能力封装出来的接口(`kind=lib`),
+  `tests/*.cpp` 调该接口做结果验证——正好吃上 `mcpp test` **一次编一批、退出码汇总**的能力
+  (`execute.cppm`),比把断言塞进一个大 `main` 里 `return 1..N` 干净;断言点天然可拆多个文件。
+  需要"跑产物看结果"的(如 openblas 直跑)再叠用 `kind=bin` + `mcpp run`。
+- **member 粒度 = 依赖集**(对齐现有 smoke 分组:core/archive/compression/imgui…)。
+- **自指依赖路由**:根 `[indices] compat = { path = "." }`(仓库根就有 `pkgs/`),member 继承
+  (`prepare.cppm:366-402`);现有 `tests/examples/*` 已在用 `path = "../../.."`,**几乎现成**——
+  只需加一个根 `mcpp.toml` 把它们登记为 members。
 - **驱动 `ci/run.sh`** 只剩 B 类 + 绕开 G1/G3/G4 的最小逻辑:
   1. 环境隔离 / 缓存 / 镜像(B 类,本就该在 CI)。
-  2. **遍历 member**(绕 G1):`for m in $(member_list); do mcpp -p "$m" run || fail; done`;或按平台
-     选子集。
-  3. **平台门控**(绕 G3/G4):Windows 才把 `openblas` member 纳入列表;per-OS ldflags 暂时仍由
-     驱动按平台写入 member 的 `[build]`(或见 §5 让 mcpp 原生支持后删掉)。
-  4. **产物断言**(B 类):`readelf`/DLL-旁置/中性 CWD 直跑,保留在驱动里。
+  2. **遍历 member**(绕 G1):`for m in $(members); do mcpp -p "$m" test || fail; done`(无 `--workspace` 前)。
+  3. **平台门控**(绕 G3/G4):Windows 才纳入 `openblas` member;per-OS 差异暂由驱动兜——
+     **直到 mcpp 侧 L1 条件依赖落地**(见下)后删掉。
+  4. **产物断言**(B 类):`readelf` 链接检查 / DLL 旁置 / 中性 CWD 直跑,留在驱动里。
 
-**净效果**:heredoc 全删、`smoke_compat_*.sh` 的「造工程」逻辑全删;留一个 `ci/run.sh`(估计
-比现在六个脚本之和小一个量级),且 member 工程可被人类直接 `mcpp run` 复现——这本身就是更好的
-回归资产。
+**净效果**:heredoc 全删、`smoke_compat_*.sh` 的「造工程」逻辑全删;留一个 `ci/run.sh`(约比现
+六脚本之和小一个量级),member 可被人类直接 `mcpp test`/`mcpp run` 复现——本身就是更好的回归资产。
+
+### 4a. 与 mcpp 侧设计的关系(独立又相关)
+本方案的 member 正是 mcpp 仓
+`.agents/docs/2026-06-29-manifest-environment-and-platform-design.md` 里 **L1 条件依赖图的第一个真实
+用户**:`tests/examples/openblas/mcpp.toml` 要表达"**Windows 才依赖 compat.openblas、才设
+`-llibopenblas`**",这正是 `[target.'cfg(windows)'.dependencies/.build]` + `lazy=true`。在 L1 落地前
+这块靠驱动按平台选 member 子集 + 注入 ldflags;L1 落地后**直接删驱动里的平台逻辑**。这与
+windows-runtime-dll(0.0.73)那次"mcpp 补能力 → recipe/CI 变简单"完全同构。
 
 ### 4b. 配合 §刚落地的 detect 拆分
 本仓 CI 现已把 `full` 拆成 `full_linux`/`full_portable`(见
