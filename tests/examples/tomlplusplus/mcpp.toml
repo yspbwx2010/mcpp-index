@@ -1,0 +1,12 @@
+[package]
+name = "test-tomlplusplus"
+
+[targets.test-tomlplusplus]
+kind = "bin"
+main = "src/main.cpp"
+
+[indices]
+compat = { path = "../../.." }
+
+[dependencies]
+"compat.tomlplusplus" = "3.4.0"
