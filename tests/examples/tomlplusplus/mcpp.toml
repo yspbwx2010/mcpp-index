@@ -1,5 +1,6 @@
 [package]
 name = "test-tomlplusplus"
+version = "0.1.0"
 
 [targets.test-tomlplusplus]
 kind = "bin"
