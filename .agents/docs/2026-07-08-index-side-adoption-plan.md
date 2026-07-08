@@ -15,9 +15,9 @@ the pin reaches 0.0.85, new-grammar descriptors cannot merge).
 | Item | Status | Where |
 |---|---|---|
 | P0 merge PR #63 | pending maintainer decision (per instruction, PR untouched) | |
-| P1 floor + strict lint | ✅ prepared — commit 2523dd9 on `feat/index-floor-0.0.85` (push/PR gated on the v0.0.85 release assets existing, else lint's mcpp download 404s) | index.toml, validate.yml (pin 0.0.85 + xpkg parse step), publish script cp, docs |
+| P1 floor + strict lint | ✅ MERGED (#65, 6/6 CI green) — floor live; published artifact 651b707 verified to carry index.toml | index.toml, validate.yml (pin 0.0.85 + xpkg parse step), publish script cp, docs |
 | P2 fmt → scan_overrides | ✅ validated locally only; descriptor kept out of tree per instruction | build+test green incl. negative ddi-audit case |
-| P3 long-bracket migrations | ✅ prepared — commit 7f1e624 on `feat/long-bracket-migrations` (stacked on P1) | parity-oracle byte-identical; nlohmann.json + eigen member tests green |
+| P3 long-bracket migrations | ✅ MERGED (#66, 6/6 CI green) | parity-oracle byte-identical; nlohmann.json + eigen member tests green |
 | P4 docs | ✅ folded into P1 commit (schema rows + floor section) | docs/repository-and-schema.md |
 
 Note: the corpus dry-run of strict lint over all 42 descriptors surfaced and
